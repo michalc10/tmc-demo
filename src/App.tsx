@@ -3,13 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 
 type TextSize = "100" | "125" | "150";
-type SoundMotionMode = "waves" | "speech" | "spectrum";
+type SoundMotionMode = "hearing-aid" | "waves" | "speech" | "spectrum";
 
 type SoundParticle = {
   offset: number;
   band: number;
   speed: number;
   phase: number;
+};
+
+type HearingAidParticle = {
+  homeX: number;
+  homeY: number;
+  x: number;
+  y: number;
+  velocityX: number;
+  velocityY: number;
+  size: number;
+  phase: number;
+  accent: boolean;
 };
 
 const textSizes: { value: TextSize; label: string; shortLabel: string }[] = [
@@ -80,6 +92,7 @@ const customerReviews = [
 ] as const;
 
 const soundMotionModes: { id: SoundMotionMode; label: string; description: string }[] = [
+  { id: "hearing-aid", label: "Aparat", description: "Aparat słuchowy z punktów płynnie przyciąganych przez kursor" },
   { id: "waves", label: "Fale", description: "Fale dźwięku podążające za kursorem" },
   { id: "speech", label: "Rozmowa", description: "Strumień mowy skupiający się przy kursorze" },
   { id: "spectrum", label: "Widmo", description: "Widmo dźwięku reagujące na ruch kursora" },
@@ -105,10 +118,92 @@ function TmcSoundField({ mode, highContrast }: { mode: SoundMotionMode; highCont
     let running = false;
     let visible = true;
     let particles: SoundParticle[] = [];
+    let hearingAidParticles: HearingAidParticle[] = [];
 
     const palette = highContrast
       ? { primary: "255, 219, 0", secondary: "255, 255, 255", soft: "255, 255, 255" }
       : { primary: "206, 92, 62", secondary: "251, 249, 243", soft: "23, 93, 96" };
+
+    function rebuildHearingAid() {
+      const points: { x: number; y: number; accent?: boolean }[] = [];
+      const scale = Math.min(width * .9, height * .88);
+      const centerX = width * .5;
+      const centerY = height * .48;
+      const rotation = -.13;
+      const cosine = Math.cos(rotation);
+      const sine = Math.sin(rotation);
+
+      function addPoint(modelX: number, modelY: number, accent = false) {
+        const rotatedX = modelX * cosine - modelY * sine;
+        const rotatedY = modelX * sine + modelY * cosine;
+        points.push({ x: centerX + rotatedX * scale, y: centerY + rotatedY * scale, accent });
+      }
+
+      for (let row = 0; row <= 18; row += 1) {
+        const progress = row / 18;
+        const modelY = -.25 + progress * .55;
+        const halfWidth = .055 + Math.sin(progress * Math.PI) * .075 + (1 - progress) * .018;
+        const bodyCenterX = -.13 - Math.sin(progress * Math.PI) * .018;
+        const columns = Math.max(3, Math.round(halfWidth / .023));
+        for (let column = -columns; column <= columns; column += 1) {
+          const modelX = bodyCenterX + (column / columns) * halfWidth;
+          const edgeDistance = Math.abs(column / columns);
+          if (edgeDistance > .88 && (row + column) % 2 === 0) continue;
+          addPoint(modelX, modelY, (row + column + 30) % 7 === 0);
+        }
+      }
+
+      const tubeStart = { x: -.07, y: -.245 };
+      const tubeControlOne = { x: .18, y: -.39 };
+      const tubeControlTwo = { x: .34, y: -.12 };
+      const tubeEnd = { x: .19, y: .17 };
+      for (let index = 0; index <= 42; index += 1) {
+        const progress = index / 42;
+        const inverse = 1 - progress;
+        const modelX = inverse ** 3 * tubeStart.x
+          + 3 * inverse ** 2 * progress * tubeControlOne.x
+          + 3 * inverse * progress ** 2 * tubeControlTwo.x
+          + progress ** 3 * tubeEnd.x;
+        const modelY = inverse ** 3 * tubeStart.y
+          + 3 * inverse ** 2 * progress * tubeControlOne.y
+          + 3 * inverse * progress ** 2 * tubeControlTwo.y
+          + progress ** 3 * tubeEnd.y;
+        addPoint(modelX, modelY, index % 6 === 0);
+        if (index % 2 === 0) addPoint(modelX - .014, modelY + .004);
+      }
+
+      for (let ring = 0; ring < 3; ring += 1) {
+        const radiusX = .035 + ring * .014;
+        const radiusY = .025 + ring * .009;
+        for (let index = 0; index < 12 + ring * 3; index += 1) {
+          const angle = (index / (12 + ring * 3)) * Math.PI * 2;
+          addPoint(.185 + Math.cos(angle) * radiusX, .19 + Math.sin(angle) * radiusY, ring === 0);
+        }
+      }
+      for (let wave = 0; wave < 3; wave += 1) {
+        const radius = .085 + wave * .055;
+        for (let index = 0; index <= 10 + wave * 2; index += 1) {
+          const angle = -.72 + (index / (10 + wave * 2)) * 1.44;
+          addPoint(.195 + Math.cos(angle) * radius, .19 + Math.sin(angle) * radius, wave === 0);
+        }
+      }
+
+      hearingAidParticles = points.map((point, index) => {
+        const scatterX = Math.sin(index * 91.73) * 7;
+        const scatterY = Math.cos(index * 47.11) * 7;
+        return {
+          homeX: point.x,
+          homeY: point.y,
+          x: point.x + scatterX,
+          y: point.y + scatterY,
+          velocityX: 0,
+          velocityY: 0,
+          size: 1.25 + ((index * 17) % 9) * .13,
+          phase: index * .61,
+          accent: Boolean(point.accent),
+        };
+      });
+    }
 
     function resize() {
       const bounds = canvasElement.getBoundingClientRect();
@@ -128,6 +223,7 @@ function TmcSoundField({ mode, highContrast }: { mode: SoundMotionMode; highCont
         speed: .68 + (index % 6) * .09,
         phase: index * .77,
       }));
+      rebuildHearingAid();
       if (reducedMotion) draw(0);
     }
 
@@ -161,6 +257,57 @@ function TmcSoundField({ mode, highContrast }: { mode: SoundMotionMode; highCont
       drawingContext.shadowBlur = 22;
       drawingContext.shadowColor = `rgba(${palette.primary}, .72)`;
       drawingContext.fill();
+      drawingContext.restore();
+    }
+
+    function drawHearingAid(time: number) {
+      const influenceRadius = Math.min(220, Math.max(135, width * .34));
+      drawingContext.save();
+      drawingContext.globalCompositeOperation = highContrast ? "source-over" : "screen";
+
+      hearingAidParticles.forEach((particle) => {
+        const idleX = Math.sin(time * .0011 + particle.phase) * .55;
+        const idleY = Math.cos(time * .0009 + particle.phase) * .55;
+        const targetX = particle.homeX + idleX;
+        const targetY = particle.homeY + idleY;
+        const pointerX = pointer.x - particle.x;
+        const pointerY = pointer.y - particle.y;
+        const pointerDistance = Math.max(1, Math.hypot(pointerX, pointerY));
+        const influence = pointer.active && pointerDistance < influenceRadius
+          ? Math.pow(1 - pointerDistance / influenceRadius, 2)
+          : 0;
+
+        particle.velocityX += (targetX - particle.x) * .026;
+        particle.velocityY += (targetY - particle.y) * .026;
+        particle.velocityX += (pointerX / pointerDistance) * influence * .82;
+        particle.velocityY += (pointerY / pointerDistance) * influence * .82;
+        particle.velocityX *= .855;
+        particle.velocityY *= .855;
+        particle.x += particle.velocityX;
+        particle.y += particle.velocityY;
+
+        const radius = particle.size + influence * 1.8;
+        const color = particle.accent ? palette.primary : palette.secondary;
+        drawingContext.beginPath();
+        drawingContext.arc(particle.x, particle.y, radius, 0, Math.PI * 2);
+        drawingContext.fillStyle = `rgba(${color}, ${.48 + influence * .48})`;
+        if (influence > .1) {
+          drawingContext.shadowBlur = 12 + influence * 12;
+          drawingContext.shadowColor = `rgba(${palette.primary}, .72)`;
+        } else {
+          drawingContext.shadowBlur = 0;
+        }
+        drawingContext.fill();
+      });
+
+      if (pointer.active) {
+        const halo = drawingContext.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, influenceRadius);
+        halo.addColorStop(0, `rgba(${palette.primary}, .13)`);
+        halo.addColorStop(.45, `rgba(${palette.primary}, .035)`);
+        halo.addColorStop(1, `rgba(${palette.primary}, 0)`);
+        drawingContext.fillStyle = halo;
+        drawingContext.fillRect(pointer.x - influenceRadius, pointer.y - influenceRadius, influenceRadius * 2, influenceRadius * 2);
+      }
       drawingContext.restore();
     }
 
@@ -227,6 +374,7 @@ function TmcSoundField({ mode, highContrast }: { mode: SoundMotionMode; highCont
     function draw(time: number) {
       drawingContext.clearRect(0, 0, width, height);
       updateSource(time);
+      if (mode === "hearing-aid") drawHearingAid(time);
       if (mode === "waves") drawWaves(time);
       if (mode === "speech") drawSpeech(time);
       if (mode === "spectrum") drawSpectrum(time);
@@ -301,7 +449,7 @@ export default function TmcPage() {
   const pageRef = useRef<HTMLDivElement>(null);
   const [textSize, setTextSize] = useState<TextSize>("100");
   const [highContrast, setHighContrast] = useState(false);
-  const [soundMotion, setSoundMotion] = useState<SoundMotionMode>("waves");
+  const [soundMotion, setSoundMotion] = useState<SoundMotionMode>("hearing-aid");
   const [menuOpen, setMenuOpen] = useState(false);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
@@ -521,7 +669,7 @@ export default function TmcPage() {
             <div className="tmc-motion-picker">
               <div className="tmc-motion-label">
                 <span>Dźwięk w ruchu</span>
-                <strong>{soundMotionModes.findIndex((motion) => motion.id === soundMotion) + 1}/3</strong>
+                <strong>{soundMotionModes.findIndex((motion) => motion.id === soundMotion) + 1}/{soundMotionModes.length}</strong>
               </div>
               <div className="tmc-motion-options" role="tablist" aria-label="Wybierz animację związaną ze słuchem">
                 {soundMotionModes.map((motion) => (
