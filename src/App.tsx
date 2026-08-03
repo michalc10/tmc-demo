@@ -24,6 +24,12 @@ type HearingAidParticle = {
   accent: boolean;
 };
 
+type HearingAidLink = {
+  first: number;
+  second: number;
+  accent: boolean;
+};
+
 const textSizes: { value: TextSize; label: string; shortLabel: string }[] = [
   { value: "100", label: "Zwykły tekst", shortLabel: "A" },
   { value: "125", label: "Większy tekst: 125%", shortLabel: "A+" },
@@ -119,6 +125,7 @@ function TmcSoundField({ mode, highContrast }: { mode: SoundMotionMode; highCont
     let visible = true;
     let particles: SoundParticle[] = [];
     let hearingAidParticles: HearingAidParticle[] = [];
+    let hearingAidLinks: HearingAidLink[] = [];
 
     const palette = highContrast
       ? { primary: "255, 219, 0", secondary: "255, 255, 255", soft: "255, 255, 255" }
@@ -203,6 +210,34 @@ function TmcSoundField({ mode, highContrast }: { mode: SoundMotionMode; highCont
           accent: Boolean(point.accent),
         };
       });
+
+      const connectionDistance = scale * .046;
+      const connectionCounts = hearingAidParticles.map(() => 0);
+      hearingAidLinks = [];
+      hearingAidParticles.forEach((particle, first) => {
+        const nearest = hearingAidParticles
+          .map((candidate, second) => ({
+            second,
+            distance: second === first
+              ? Number.POSITIVE_INFINITY
+              : Math.hypot(candidate.homeX - particle.homeX, candidate.homeY - particle.homeY),
+          }))
+          .filter((candidate) => candidate.distance < connectionDistance)
+          .sort((left, right) => left.distance - right.distance)
+          .slice(0, 3);
+
+        nearest.forEach((candidate, rank) => {
+          if (candidate.second < first || connectionCounts[first] >= 2 || connectionCounts[candidate.second] >= 3) return;
+          if (rank > 0 && (first + candidate.second) % 3 !== 0) return;
+          hearingAidLinks.push({
+            first,
+            second: candidate.second,
+            accent: particle.accent || hearingAidParticles[candidate.second].accent,
+          });
+          connectionCounts[first] += 1;
+          connectionCounts[candidate.second] += 1;
+        });
+      });
     }
 
     function resize() {
@@ -285,6 +320,37 @@ function TmcSoundField({ mode, highContrast }: { mode: SoundMotionMode; highCont
         particle.velocityY *= .855;
         particle.x += particle.velocityX;
         particle.y += particle.velocityY;
+      });
+
+      drawingContext.shadowBlur = 0;
+      hearingAidLinks.forEach((link) => {
+        const first = hearingAidParticles[link.first];
+        const second = hearingAidParticles[link.second];
+        const currentDistance = Math.hypot(second.x - first.x, second.y - first.y);
+        const restingDistance = Math.max(1, Math.hypot(second.homeX - first.homeX, second.homeY - first.homeY));
+        const stretchFade = Math.max(.12, 1 - Math.max(0, currentDistance / restingDistance - 1) * .52);
+        const pointerDistance = Math.min(
+          Math.hypot(pointer.x - first.x, pointer.y - first.y),
+          Math.hypot(pointer.x - second.x, pointer.y - second.y),
+        );
+        const pointerGlow = pointer.active && pointerDistance < influenceRadius
+          ? Math.pow(1 - pointerDistance / influenceRadius, 2)
+          : 0;
+        const color = link.accent ? palette.primary : palette.secondary;
+
+        drawingContext.beginPath();
+        drawingContext.moveTo(first.x, first.y);
+        drawingContext.lineTo(second.x, second.y);
+        drawingContext.strokeStyle = `rgba(${color}, ${(link.accent ? .3 : .15) * stretchFade + pointerGlow * .32})`;
+        drawingContext.lineWidth = .55 + pointerGlow * .8;
+        drawingContext.stroke();
+      });
+
+      hearingAidParticles.forEach((particle) => {
+        const pointerDistance = Math.hypot(pointer.x - particle.x, pointer.y - particle.y);
+        const influence = pointer.active && pointerDistance < influenceRadius
+          ? Math.pow(1 - pointerDistance / influenceRadius, 2)
+          : 0;
 
         const radius = particle.size + influence * 1.8;
         const color = particle.accent ? palette.primary : palette.secondary;
