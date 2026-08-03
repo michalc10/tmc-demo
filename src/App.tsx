@@ -462,7 +462,7 @@ export default function TmcPage() {
           setTextSize(savedSize as TextSize);
         }
         setHighContrast(window.localStorage.getItem("tmc-high-contrast") === "true");
-        const savedMotion = window.localStorage.getItem("tmc-sound-motion");
+        const savedMotion = window.localStorage.getItem("tmc-sound-motion-v2");
         if (soundMotionModes.some((motion) => motion.id === savedMotion)) {
           setSoundMotion(savedMotion as SoundMotionMode);
         }
@@ -527,7 +527,7 @@ export default function TmcPage() {
   function changeSoundMotion(mode: SoundMotionMode) {
     setSoundMotion(mode);
     try {
-      window.localStorage.setItem("tmc-sound-motion", mode);
+      window.localStorage.setItem("tmc-sound-motion-v2", mode);
     } catch {
       // Animacja pozostaje wybrana do końca bieżącej wizyty.
     }
